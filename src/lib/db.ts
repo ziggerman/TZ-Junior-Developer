@@ -5,8 +5,31 @@ import path from "path";
 
 // Resilient fallback storage for serverless environments (Vercel)
 const FALLBACK_FILE = path.join("/tmp", "tickets_store.json");
+const DELETED_FILE = path.join("/tmp", "deleted_tickets.json");
 
 let memoryTickets: Ticket[] = [];
+let deletedIdsSet = new Set<string>();
+
+function loadDeletedIds(): Set<string> {
+  try {
+    if (fs.existsSync(DELETED_FILE)) {
+      const data = fs.readFileSync(DELETED_FILE, "utf-8");
+      deletedIdsSet = new Set(JSON.parse(data));
+    }
+  } catch (e) {
+    console.warn("Could not read deleted IDs:", e);
+  }
+  return deletedIdsSet;
+}
+
+function saveDeletedId(id: string) {
+  deletedIdsSet.add(id);
+  try {
+    fs.writeFileSync(DELETED_FILE, JSON.stringify(Array.from(deletedIdsSet)), "utf-8");
+  } catch (e) {
+    console.warn("Could not write deleted IDs:", e);
+  }
+}
 
 function loadFallbackTickets(): Ticket[] {
   try {
@@ -30,21 +53,23 @@ function saveFallbackTickets(tickets: Ticket[]) {
 }
 
 export async function dbGetTickets(): Promise<Ticket[]> {
+  const deletedIds = loadDeletedIds();
   const prisma = getPrisma();
   if (prisma) {
     try {
       const tickets = await prisma.ticket.findMany({
+        where: deletedIds.size > 0 ? { id: { notIn: Array.from(deletedIds) } } : undefined,
         orderBy: { createdAt: "desc" },
       });
-      return tickets as unknown as Ticket[];
+      return tickets.filter((t) => !deletedIds.has(t.id)) as unknown as Ticket[];
     } catch (error) {
       console.warn("Prisma findMany failed, falling back to memory store:", error);
     }
   }
 
-  return loadFallbackTickets().sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return loadFallbackTickets()
+    .filter((t) => !deletedIds.has(t.id))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function dbCreateTicket(clientName: string, content: string): Promise<Ticket> {
@@ -84,6 +109,9 @@ export async function dbCreateTicket(clientName: string, content: string): Promi
 }
 
 export async function dbGetTicketById(id: string): Promise<Ticket | null> {
+  const deletedIds = loadDeletedIds();
+  if (deletedIds.has(id)) return null;
+
   const prisma = getPrisma();
   if (prisma) {
     try {
@@ -104,6 +132,9 @@ export async function dbUpdateTicket(
   id: string,
   data: Partial<Ticket>
 ): Promise<Ticket | null> {
+  const deletedIds = loadDeletedIds();
+  if (deletedIds.has(id)) return null;
+
   const prisma = getPrisma();
   if (prisma) {
     try {
@@ -140,13 +171,14 @@ export async function dbUpdateTicket(
 }
 
 export async function dbDeleteTicket(id: string): Promise<boolean> {
+  saveDeletedId(id);
+
   const prisma = getPrisma();
   if (prisma) {
     try {
       await prisma.ticket.delete({
         where: { id },
       });
-      return true;
     } catch (error) {
       console.warn("Prisma delete failed, falling back to memory store:", error);
     }

@@ -10,6 +10,7 @@ import { Ticket } from "@/lib/types";
 import { Plus, Inbox, AlertCircle, CheckCircle2, X } from "lucide-react";
 
 const STORAGE_KEY = "sd_support_tickets_v1";
+const DELETED_STORAGE_KEY = "sd_deleted_tickets_v1";
 
 export default function Home() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -32,7 +33,27 @@ export default function Home() {
     }, 4000);
   };
 
-  // Helper to persist in localStorage
+  const getDeletedIds = (): Set<string> => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const saved = localStorage.getItem(DELETED_STORAGE_KEY);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  };
+
+  const addDeletedId = (id: string) => {
+    if (typeof window === "undefined") return;
+    try {
+      const current = getDeletedIds();
+      current.add(id);
+      localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify(Array.from(current)));
+    } catch {
+      // Ignore
+    }
+  };
+
   const saveToLocal = (updated: Ticket[]) => {
     if (typeof window !== "undefined") {
       try {
@@ -44,11 +65,14 @@ export default function Home() {
   };
 
   const fetchTickets = async () => {
+    const deletedIds = getDeletedIds();
     let localTickets: Ticket[] = [];
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) localTickets = JSON.parse(saved);
+        if (saved) {
+          localTickets = (JSON.parse(saved) as Ticket[]).filter((t) => !deletedIds.has(t.id));
+        }
       } catch {
         // Ignore
       }
@@ -58,13 +82,20 @@ export default function Home() {
       const res = await fetch("/api/tickets");
       const data = await res.json();
       if (data.success && Array.isArray(data.tickets)) {
-        // Merge server and local tickets by ID
+        const validServerTickets = (data.tickets as Ticket[]).filter(
+          (t) => !deletedIds.has(t.id)
+        );
+
         const map = new Map<string, Ticket>();
         for (const t of localTickets) map.set(t.id, t);
-        for (const t of data.tickets) map.set(t.id, t);
-        const merged = Array.from(map.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
+        for (const t of validServerTickets) map.set(t.id, t);
+
+        const merged = Array.from(map.values())
+          .filter((t) => !deletedIds.has(t.id))
+          .sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+
         setTickets(merged);
         saveToLocal(merged);
       } else {
@@ -126,16 +157,23 @@ export default function Home() {
   };
 
   const handleDeleteTicket = async (ticketId: string) => {
-    try {
-      await fetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
-    } catch {
-      // Ignore network fail, remove locally
-    }
+    // 1. Permanently record as deleted
+    addDeletedId(ticketId);
+
+    // 2. Remove from state and localStorage immediately
     setTickets((prev) => {
       const updated = prev.filter((t) => t.id !== ticketId);
       saveToLocal(updated);
       return updated;
     });
+
+    // 3. Notify server
+    try {
+      await fetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
+    } catch {
+      // Handled gracefully
+    }
+
     showToast("Звернення видалено", "success");
   };
 
