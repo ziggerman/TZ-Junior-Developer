@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Ticket {
+  id            String    @id @default(cuid())
+  clientName    String
+  content       String
+  status        String    @default("pending") // "pending" | "analyzed"
+  priority      String?   // "низький" | "середній" | "високий"
+  category      String?   // "оплата" | "доставка" | "скарга" | "інше"
+  summary       String?   // 1 sentence summary
+  draftResponse String?   // generated draft response
+  analyzedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
