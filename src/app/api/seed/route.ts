@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { dbCreateTicket, dbGetTickets } from "@/lib/db";
 
 const SAMPLE_TICKETS = [
   {
@@ -10,32 +10,15 @@ const SAMPLE_TICKETS = [
     clientName: "Максим Шевченко",
     content: "Вітаю. Замовляв ноутбук із доставкою кур'єром на вчора, але ніхто не приїхав і не попередив. ТТН 20450891238910. Коли очікувати доставку?",
   },
-  {
-    clientName: "Ірина Мельник",
-    content: "Добрий вечір! Чи планується у вас найближчим часом інтеграція з Apple Pay для юридичних осіб? Хочемо перейти на ваш сервіс.",
-  },
-  {
-    clientName: "Андрій Бондаренко",
-    content: "Сайт повністю зависає при спробі експортувати звіт у форматі PDF у розділі аналітики. Помилка 500. У нас зупинився робочий процес!",
-  },
 ];
 
 export async function POST() {
   try {
     for (const sample of SAMPLE_TICKETS) {
-      await prisma.ticket.create({
-        data: {
-          clientName: sample.clientName,
-          content: sample.content,
-          status: "pending",
-        },
-      });
+      await dbCreateTicket(sample.clientName, sample.content);
     }
 
-    const tickets = await prisma.ticket.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-
+    const tickets = await dbGetTickets();
     return NextResponse.json({ success: true, count: SAMPLE_TICKETS.length, tickets });
   } catch (error) {
     console.error("Error seeding tickets:", error);
