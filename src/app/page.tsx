@@ -307,9 +307,8 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-black/[0.04] py-6 text-center text-xs text-zinc-400">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="max-w-6xl mx-auto px-4 text-center">
           <span>AI-обробка звернень для служби підтримки</span>
-          <span className="text-zinc-400">Next.js • TypeScript • Tailwind CSS • Prisma</span>
         </div>
       </footer>
 
