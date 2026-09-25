@@ -9,6 +9,8 @@ import { CreateTicketModal } from "@/components/CreateTicketModal";
 import { Ticket } from "@/lib/types";
 import { Plus, Inbox, AlertCircle, CheckCircle2, X } from "lucide-react";
 
+const STORAGE_KEY = "sd_support_tickets_v1";
+
 export default function Home() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,16 +32,46 @@ export default function Home() {
     }, 4000);
   };
 
+  // Helper to persist in localStorage
+  const saveToLocal = (updated: Ticket[]) => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.warn("Could not save to localStorage:", e);
+      }
+    }
+  };
+
   const fetchTickets = async () => {
+    let localTickets: Ticket[] = [];
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) localTickets = JSON.parse(saved);
+      } catch {
+        // Ignore
+      }
+    }
+
     try {
       const res = await fetch("/api/tickets");
       const data = await res.json();
-      if (data.success) {
-        setTickets(data.tickets);
+      if (data.success && Array.isArray(data.tickets)) {
+        // Merge server and local tickets by ID
+        const map = new Map<string, Ticket>();
+        for (const t of localTickets) map.set(t.id, t);
+        for (const t of data.tickets) map.set(t.id, t);
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setTickets(merged);
+        saveToLocal(merged);
+      } else {
+        setTickets(localTickets);
       }
-    } catch (error) {
-      console.error("Failed to fetch tickets:", error);
-      showToast("Помилка завантаження списку звернень", "error");
+    } catch {
+      setTickets(localTickets);
     } finally {
       setIsLoading(false);
     }
@@ -49,12 +81,28 @@ export default function Home() {
     fetchTickets();
   }, []);
 
+  const handleTicketCreated = (newTicket: Ticket) => {
+    setTickets((prev) => {
+      const updated = [newTicket, ...prev.filter((t) => t.id !== newTicket.id)];
+      saveToLocal(updated);
+      return updated;
+    });
+    showToast("Звернення успішно збережено!", "success");
+  };
+
   const handleAnalyzeTicket = async (ticketId: string) => {
+    const currentTicket = tickets.find((t) => t.id === ticketId);
+    if (!currentTicket) return;
+
     setAnalyzingIds((prev) => ({ ...prev, [ticketId]: true }));
     try {
       const res = await fetch(`/api/tickets/${ticketId}/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientName: currentTicket.clientName,
+          content: currentTicket.content,
+        }),
       });
 
       const data = await res.json();
@@ -62,10 +110,12 @@ export default function Home() {
         throw new Error(data.error || "Помилка при аналізі звернення");
       }
 
-      // Update ticket locally
-      setTickets((prev) =>
-        prev.map((t) => (t.id === ticketId ? data.ticket : t))
-      );
+      // Update ticket locally and in storage
+      setTickets((prev) => {
+        const updated = prev.map((t) => (t.id === ticketId ? data.ticket : t));
+        saveToLocal(updated);
+        return updated;
+      });
       showToast("Звернення успішно проаналізовано AI!", "success");
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Не вдалося виконати аналіз";
@@ -77,25 +127,20 @@ export default function Home() {
 
   const handleDeleteTicket = async (ticketId: string) => {
     try {
-      const res = await fetch(`/api/tickets/${ticketId}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.success) {
-        setTickets((prev) => prev.filter((t) => t.id !== ticketId));
-        showToast("Звернення видалено", "success");
-      } else {
-        throw new Error(data.error);
-      }
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Помилка при видаленні";
-      showToast(msg, "error");
+      await fetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
+    } catch {
+      // Ignore network fail, remove locally
     }
+    setTickets((prev) => {
+      const updated = prev.filter((t) => t.id !== ticketId);
+      saveToLocal(updated);
+      return updated;
+    });
+    showToast("Звернення видалено", "success");
   };
 
   // Filter and search logic
   const filteredTickets = tickets.filter((ticket) => {
-    // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchClient = ticket.clientName.toLowerCase().includes(q);
@@ -107,11 +152,9 @@ export default function Home() {
       }
     }
 
-    // Status filter
     if (statusFilter === "pending" && ticket.status === "analyzed") return false;
     if (statusFilter === "analyzed" && ticket.status !== "analyzed") return false;
 
-    // Priority filter
     if (priorityFilter !== "all" && ticket.priority !== priorityFilter) return false;
 
     return true;
@@ -236,7 +279,7 @@ export default function Home() {
       <CreateTicketModal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onCreated={fetchTickets}
+        onCreated={handleTicketCreated}
       />
     </div>
   );
