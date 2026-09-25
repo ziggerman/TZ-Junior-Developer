@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { dbGetTickets, dbCreateTicket } from "@/lib/db";
 
 export async function GET() {
   try {
-    const tickets = await prisma.ticket.findMany({
-      orderBy: { createdAt: "desc" },
-    });
+    const tickets = await dbGetTickets();
     return NextResponse.json({ success: true, tickets });
   } catch (error) {
     console.error("Error fetching tickets:", error);
@@ -35,13 +33,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const newTicket = await prisma.ticket.create({
-      data: {
-        clientName: clientName.trim(),
-        content: content.trim(),
-        status: "pending",
-      },
-    });
+    const newTicket = await dbCreateTicket(clientName, content);
 
     return NextResponse.json({ success: true, ticket: newTicket }, { status: 201 });
   } catch (error) {

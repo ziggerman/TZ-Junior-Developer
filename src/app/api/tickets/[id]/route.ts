@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { dbGetTicketById, dbDeleteTicket } from "@/lib/db";
 
 export async function GET(
   request: Request,
@@ -7,9 +7,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const ticket = await prisma.ticket.findUnique({
-      where: { id },
-    });
+    const ticket = await dbGetTicketById(id);
 
     if (!ticket) {
       return NextResponse.json(
@@ -34,9 +32,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await prisma.ticket.delete({
-      where: { id },
-    });
+    await dbDeleteTicket(id);
 
     return NextResponse.json({ success: true, message: "Звернення видалено" });
   } catch (error) {

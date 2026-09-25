@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { dbGetTicketById, dbUpdateTicket } from "@/lib/db";
 import { analyzeTicketWithLLM } from "@/lib/llm";
 import { LLMConfig } from "@/lib/types";
 
@@ -10,9 +10,7 @@ export async function POST(
   try {
     const { id } = await params;
 
-    const ticket = await prisma.ticket.findUnique({
-      where: { id },
-    });
+    const ticket = await dbGetTicketById(id);
 
     if (!ticket) {
       return NextResponse.json(
@@ -43,16 +41,13 @@ export async function POST(
     );
 
     // Save analysis to database
-    const updatedTicket = await prisma.ticket.update({
-      where: { id },
-      data: {
-        status: "analyzed",
-        priority: analysis.priority,
-        category: analysis.category,
-        summary: analysis.summary,
-        draftResponse: analysis.draftResponse,
-        analyzedAt: new Date(),
-      },
+    const updatedTicket = await dbUpdateTicket(id, {
+      status: "analyzed",
+      priority: analysis.priority,
+      category: analysis.category,
+      summary: analysis.summary,
+      draftResponse: analysis.draftResponse,
+      analyzedAt: new Date().toISOString(),
     });
 
     return NextResponse.json({

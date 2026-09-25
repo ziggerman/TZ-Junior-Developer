@@ -1,0 +1,142 @@
+import { prisma } from "./prisma";
+import { Ticket } from "./types";
+import fs from "fs";
+import path from "path";
+
+// Fallback in-memory and /tmp/tickets.json storage for resilient serverless execution
+const FALLBACK_FILE = path.join("/tmp", "tickets_store.json");
+
+let memoryTickets: Ticket[] = [];
+
+function loadFallbackTickets(): Ticket[] {
+  try {
+    if (fs.existsSync(FALLBACK_FILE)) {
+      const data = fs.readFileSync(FALLBACK_FILE, "utf-8");
+      memoryTickets = JSON.parse(data);
+    }
+  } catch (e) {
+    console.warn("Could not read fallback storage:", e);
+  }
+  return memoryTickets;
+}
+
+function saveFallbackTickets(tickets: Ticket[]) {
+  memoryTickets = tickets;
+  try {
+    fs.writeFileSync(FALLBACK_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("Could not write to fallback storage:", e);
+  }
+}
+
+export async function dbGetTickets(): Promise<Ticket[]> {
+  try {
+    const tickets = await prisma.ticket.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    return tickets as unknown as Ticket[];
+  } catch (error) {
+    console.warn("Prisma findMany failed, using fallback storage:", error);
+    return loadFallbackTickets().sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+}
+
+export async function dbCreateTicket(clientName: string, content: string): Promise<Ticket> {
+  try {
+    const ticket = await prisma.ticket.create({
+      data: {
+        clientName: clientName.trim(),
+        content: content.trim(),
+        status: "pending",
+      },
+    });
+    return ticket as unknown as Ticket;
+  } catch (error) {
+    console.warn("Prisma create failed, using fallback storage:", error);
+    const tickets = loadFallbackTickets();
+    const newTicket: Ticket = {
+      id: "t_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      clientName: clientName.trim(),
+      content: content.trim(),
+      status: "pending",
+      priority: null,
+      category: null,
+      summary: null,
+      draftResponse: null,
+      analyzedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    tickets.unshift(newTicket);
+    saveFallbackTickets(tickets);
+    return newTicket;
+  }
+}
+
+export async function dbGetTicketById(id: string): Promise<Ticket | null> {
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id },
+    });
+    if (ticket) return ticket as unknown as Ticket;
+  } catch (error) {
+    console.warn("Prisma findUnique failed, using fallback storage:", error);
+  }
+
+  const tickets = loadFallbackTickets();
+  return tickets.find((t) => t.id === id) || null;
+}
+
+export async function dbUpdateTicket(
+  id: string,
+  data: Partial<Ticket>
+): Promise<Ticket | null> {
+  try {
+    const updated = await prisma.ticket.update({
+      where: { id },
+      data: {
+        status: data.status,
+        priority: data.priority,
+        category: data.category,
+        summary: data.summary,
+        draftResponse: data.draftResponse,
+        analyzedAt: data.analyzedAt ? new Date(data.analyzedAt) : new Date(),
+      },
+    });
+    return updated as unknown as Ticket;
+  } catch (error) {
+    console.warn("Prisma update failed, using fallback storage:", error);
+  }
+
+  const tickets = loadFallbackTickets();
+  const index = tickets.findIndex((t) => t.id === id);
+  if (index === -1) return null;
+
+  const current = tickets[index];
+  const updated: Ticket = {
+    ...current,
+    ...data,
+    updatedAt: new Date().toISOString(),
+  };
+  tickets[index] = updated;
+  saveFallbackTickets(tickets);
+  return updated;
+}
+
+export async function dbDeleteTicket(id: string): Promise<boolean> {
+  try {
+    await prisma.ticket.delete({
+      where: { id },
+    });
+    return true;
+  } catch (error) {
+    console.warn("Prisma delete failed, using fallback storage:", error);
+  }
+
+  const tickets = loadFallbackTickets();
+  const filtered = tickets.filter((t) => t.id !== id);
+  saveFallbackTickets(filtered);
+  return true;
+}
