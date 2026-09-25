@@ -74,16 +74,3 @@ npm run dev
 Відкрийте [http://localhost:3000](http://localhost:3000) у вашому браузері.
 
 ---
-
-## ☁️ Деплой на Vercel
-
-1. Завантажте репозиторій на GitHub.
-2. Перейдіть на [Vercel](https://vercel.com) та імпортуйте репозиторій.
-3. Додайте змінні оточення в налаштуваннях проєкту Vercel (`Settings -> Environment Variables`):
-   - `OPENAI_API_KEY` (або `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`)
-   - `DATABASE_URL` (Використовуйте безкоштовний PostgreSQL від [Neon.tech](https://neon.tech) або [Supabase](https://supabase.com)).
-4. Натисніть **Deploy**.
-
-> **Порада для тестування на Vercel**: У застосунку реалізовано модальне вікно **«Налаштування AI»**, що дозволяє будь-якому користувачеві протестувати застосунок зі своїм власним API-ключем прямо в браузері.
-
----
